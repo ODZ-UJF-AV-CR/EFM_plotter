@@ -25,6 +25,7 @@ while True:
 	plt.plot(wave[:-1].phase, wave[:-1].field)
 
 	plt.ylim(-40,40)
+	plt.xlim(0,180)
 	plt.xlabel('Rotor Phase [°]')
 	plt.ylabel('Electric Field [kV/m]')
 	
