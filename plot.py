@@ -22,7 +22,7 @@ while True:
 	wave['field'] = ((wave['field'])-256) * ((3/5.5)*2.5/(139-129))
 	#print(wave)
 	
-	plt.plot(wave[:-1].phase, wave[:-1].field)
+	plt.plot(wave[:-1].phase, wave[:-1].field, lw=3)
 
 	plt.ylim(-40,40)
 	plt.xlim(0,180)
