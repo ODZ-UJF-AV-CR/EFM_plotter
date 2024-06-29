@@ -26,6 +26,18 @@ python3 efmplot.py --port /dev/ttyUSB0  # Reads data from a serial port
 python3 efmplot.py --websocket  # Activates websocket mode
 ```
 
+##### Start-up examples 
+
+Headles mode:
+```
+python3 efmplot.py --port /dev/ttyUSB1 --websocket
+```
+
+GUI mode with websockets
+```
+python3 efmplot.py --port /dev/ttyUSB0 --websocket --gui
+```
+
 #### Arguments
 
 - `--gui`: Launches the application in a graphical interface for interactive data visualization.
