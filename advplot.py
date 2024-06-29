@@ -4,9 +4,16 @@ from PyQt5.QtCore import QThread, pyqtSignal, QIODevice
 from PyQt5.QtSerialPort import QSerialPort, QSerialPortInfo
 import pyqtgraph as pg
 import time 
+import sys
+import argparse
+from PyQt5.QtWidgets import QApplication
+import asyncio
+import websockets
+import signal
+import json
 
 class SerialReaderThread(QThread):
-    data_received = pyqtSignal(str)
+    data_received = pyqtSignal(list)
 
     def __init__(self, port_name, baudrate=9600, log_file=None):
         super().__init__()
@@ -26,7 +33,7 @@ class SerialReaderThread(QThread):
             data = self.port.readLine().data().decode().strip()
             try:
                 #print("Read data", data)
-                self.data_received.emit(data)
+                self.data_received.emit([int(x)-255 for x in data.split(',')])
                 self.log_data(data)
             except ValueError as e:
                 print(e)
@@ -44,8 +51,53 @@ class SerialReaderThread(QThread):
         self.quit()
         self.wait()
 
+
+class WebsocketThread(QThread):
+    message_received = pyqtSignal(str)
+    broadcast_message = pyqtSignal(str)
+
+    def __init__(self, host, port, parent=None):
+        super(WebsocketThread, self).__init__(parent)
+        self.host = host
+        self.port = port
+        self.loop = None
+        self.clients = set()
+        self.running = True
+        self.broadcast_message.connect(self.handle_broadcast_message)
+
+    async def handler(self, websocket, path):
+        self.clients.add(websocket)
+        try:
+            async for message in websocket:
+                print(f"Received: {message}")
+                #self.message_received.emit(f"Received: {message}")
+        finally:
+            self.clients.remove(websocket)
+    
+    def handle_broadcast_message(self, message):
+        asyncio.run_coroutine_threadsafe(self.send_message_to_all(message), self.loop)
+
+    async def send_message_to_all(self, message):
+        if self.clients:
+            await asyncio.gather(*(client.send(message) for client in self.clients))
+
+    async def run_server(self):
+        async with websockets.serve(self.handler, self.host, self.port):
+            await asyncio.Future()
+
+    def run(self):
+        self.loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(self.loop)
+        self.loop.run_until_complete(self.run_server())
+
+    def stop(self):
+        self.loop.call_soon_threadsafe(self.loop.stop)
+        self.running = False
+
+
 class MainWindow(QMainWindow):
-    def __init__(self):
+    serial_thread = None
+    def __init__(self, srt):
         super().__init__()
 
         self.setWindowTitle("Serial Data Plotter")
@@ -66,21 +118,13 @@ class MainWindow(QMainWindow):
         self.plot_data = []
         self.plot = self.plot_widget.plot(self.plot_data, pen=pg.mkPen(width=5))
 
-        self.serial_thread = SerialReaderThread('/dev/ttyUSB0')
+        #self.serial_thread = SerialReaderThread(port)
+        self.serial_thread = srt
         self.serial_thread.data_received.connect(self.add_data)
-        self.serial_thread.start()
+        #self.serial_thread.start()
 
     def add_data(self, value):
-        value = [int(x)-255 for x in value.split(',')]
-        #print("ADD data", value)
         self.plot.setData(value)
-        #self.plot_data.append(value)
-        #print(value)
-        #if len(self.plot_data) > 100:
-        #    self.plot_data.pop(0)
-
-    #def update_plot(self):
-    #    self.plot.setData(self.plot_data)
 
     def closeEvent(self, event):
         self.serial_thread.stop()
@@ -88,10 +132,43 @@ class MainWindow(QMainWindow):
         event.accept()
 
 def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--gui", action="store_true", help="Enable GUI mode")
+    parser.add_argument("--port", default="/dev/ttyUSB0", help="Serial port to read data from")
+    parser.add_argument("--websocket", action="store_true", help="Enable websocket mode")
+    args = parser.parse_args()
+
     app = QApplication(sys.argv)
-    main_window = MainWindow()
-    main_window.show()
+
+    serial_thread = SerialReaderThread(args.port)
+    serial_thread.start()
+
+    if args.websocket:
+        ws = WebsocketThread("0.0.0.0", 1234)
+        ws.start()
+        ws.message_received.connect(print)
+
+        def process_data(data):
+            payload = {
+                "type": "round",
+                "data": data
+            }
+            ws.broadcast_message.emit(json.dumps(payload))
+
+        serial_thread.data_received.connect(process_data)
+
+    if args.gui:
+        window = MainWindow(srt = serial_thread)
+        window.show()
+            
+
+    # Aby to slo ukoncit pomoci Ctrl+C
+    def signal_handler(signal, frame):
+        sys.exit(0)
+
+    signal.signal(signal.SIGINT, signal_handler)
     sys.exit(app.exec_())
+
 
 if __name__ == "__main__":
     main()

@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>THUNDERMILL</title>
+    <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+</head>
+<body>
+    <h2>UST THUNDERMILL live remote view</h2>
+    <div id="chart" style="width:100%;height:30%;"></div>
+    <div id="chart2" style="width:100%;height:30%;"></div>
+
+    <hr>
+
+    <h3> Configuration </h3>
+
+    <input type="text" id="ip" placeholder="websocket address">
+    <button onclick="connws()">Connect</button>
+
+    <script>
+
+
+        function connws() {
+            const ip = document.getElementById('ip').value;
+            const socket = new WebSocket(ip);
+
+
+            // Vytvoření WebSocket připojení
+            //const socket = new WebSocket('ws://localhost:1234/');
+
+            // Když se připojení otevře
+            socket.addEventListener('open', function (event) {
+                console.log('Connected to WebSocket server');
+            });
+
+
+            // Když přijde zpráva z WebSocket serveru
+            socket.addEventListener('message', function (event) {
+                const message = JSON.parse(event.data);
+
+                if (message.type === 'round') {
+                    roundData = message.data;
+
+                    const maxVal = Math.max(...roundData);
+                    const minVal = Math.min(...roundData);
+                    const diff = maxVal - minVal;
+                    diffHistory.push(diff);
+                    if (diffHistory.length > 5000) {
+                        diffHistory.shift();
+                    }
+
+                    // Aktualizace grafu
+                    Plotly.react('chart', [{
+                        x: Array.from({length: roundData.length}, (_, i) => i),
+                        y: roundData,
+                        type: 'scatter',
+                        mode: 'lines+markers',
+                        line: { shape: 'linear' }
+                    }], layout);
+
+
+                    // Aktualizace druhého grafu
+                    Plotly.react('chart2', [{
+                        x: Array.from({length: diffHistory.length}, (_, i) => i + 1),
+                        y: diffHistory,
+                        type: 'scatter',
+                        mode: 'lines+markers',
+                        line: { shape: 'linear' }
+                    }], layout2);
+                }
+            });
+
+
+            // Když se připojení uzavře
+            socket.addEventListener('close', function (event) {
+                console.log('Disconnected from WebSocket server');
+            });
+
+            // Když dojde k chybě
+            socket.addEventListener('error', function (event) {
+                console.error('WebSocket error:', event);
+            });
+
+        }
+
+        // Proměnné pro data grafu
+        let roundData = [];
+        let diffHistory = [];
+
+        // Nastavení grafu pomocí Plotly
+        const layout = {
+            title: 'EFM Round Data',
+            xaxis: {
+                title: 'Sample Number'
+            },
+            yaxis: {
+                title: 'EFM Value [a.u.]',
+                range: [-255, 255],
+            }
+        };
+
+        Plotly.newPlot('chart', [{
+            x: [],
+            y: [],
+            type: 'scatter',
+            mode: 'lines+markers',
+            line: { shape: 'linear' }
+        }], layout);
+
+
+        // Nastavení druhého grafu pomocí Plotly
+        const layout2 = {
+            title: 'EF intensity history (Peak to Peak value)',
+            xaxis: {
+                title: 'Round'
+            },
+            yaxis: {
+                title: 'Peak to Peak Difference; Electric Field intensity [kV/m - relative]',
+            }
+        };
+
+        Plotly.newPlot('chart2', [{
+            x: [],
+            y: [],
+            type: 'scatter',
+            mode: 'lines',
+            line: { shape: 'linear' }
+        }], layout2);
+
+    </script>
+</body>
+</html>
