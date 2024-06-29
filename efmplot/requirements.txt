@@ -1,4 +1,5 @@
 serial
 PyQt5
+PyQt5-stubs
 pyqtgraph
 websockets
