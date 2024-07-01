@@ -26,6 +26,18 @@ python3 efmplot.py --port /dev/ttyUSB0  # Reads data from a serial port
 python3 efmplot.py --websocket  # Activates websocket mode
 ```
 
+##### Start-up examples 
+
+Headles mode:
+```
+python3 efmplot.py --port /dev/ttyUSB1 --websocket
+```
+
+GUI mode with websockets
+```
+python3 efmplot.py --port /dev/ttyUSB0 --websocket --gui
+```
+
 #### Arguments
 
 - `--gui`: Launches the application in a graphical interface for interactive data visualization.
@@ -44,6 +56,8 @@ The application includes a simple GUI interface that enables the visualization o
 
 ## Web interface
 
-EFMPLOT includes a websocket server that allows remote connections for displaying interfaces. One example is a simple HTML page that can be viewed in a web browser.
+EFMPLOT includes a websocket server that allows remote connections for displaying real-time values. 
 
+
+One example is a [simple HTML](./index.html) page that can be viewed in a web browser.
 ![image](https://github.com/ODZ-UJF-AV-CR/EFM_plotter/assets/5196729/ed06f64c-c002-4d3d-9507-e8e27992453e)
