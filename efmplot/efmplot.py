@@ -15,15 +15,16 @@ import json
 class SerialReaderThread(QThread):
     data_received = pyqtSignal(list)
 
-    def __init__(self, port_name, baudrate=9600, log_file=None):
+    def __init__(self, port_name, baudrate=9600, log_file=None, log_prefix = "EFM"):
         super().__init__()
         self.port = QSerialPort()
         self.port.setPortName(port_name)
         self.port.setBaudRate(baudrate)
         self.port.readyRead.connect(self.read_data)
+        print("Serial read buffer size:", self.port.readBufferSize())
         self.log_file = log_file
         if not self.log_file:
-            self.log_file = "EFM_log_"+time.strftime("%Y%m%d_%H%M%S", time.gmtime()) + "_UTC.csv"
+            self.log_file = log_prefix+"log_"+time.strftime("%Y%m%d_%H%M%S", time.gmtime()) + "_UTC.csv"
         self.log_file_handle = open(self.log_file, 'a')
         if not self.port.open(QIODevice.ReadOnly):
             print(f"Failed to open port {port_name}")
@@ -133,22 +134,34 @@ class MainWindow(QMainWindow):
 
 def main():
     parser = argparse.ArgumentParser()
+    parser.add_argument("--log_file", help="Log file to write data to", default=None)
+    parser.add_argument("--log_prefix", default="EFM_THUNDERMILL01")
     parser.add_argument("--gui", action="store_true", help="Enable GUI mode")
     parser.add_argument("--port", default="/dev/ttyUSB0", help="Serial port to read data from")
+    parser.add_argument("--baudrate", default=9600, type=int, help="Baudrate for serial port")
     parser.add_argument("--websocket", action="store_true", help="Enable websocket mode")
+    parser.add_argument("--ws_port", default=1234, help="Websocket port ")
+    parser.add_argument("--ws_min_period", default=0.25, type=float, help="Minimum period between websocket messages in seconds")
+    
     args = parser.parse_args()
 
     app = QApplication(sys.argv)
 
-    serial_thread = SerialReaderThread(args.port)
+    last_ws_message = time.time()
+
+    serial_thread = SerialReaderThread(args.port, args.baudrate, args.log_file, args.log_prefix)
     serial_thread.start()
 
     if args.websocket:
-        ws = WebsocketThread("0.0.0.0", 1234)
+        ws = WebsocketThread("0.0.0.0", args.ws_port)
         ws.start()
         ws.message_received.connect(print)
 
         def process_data(data):
+            # Nechci posilat WS zpravy prilis casto
+            if (time.time() - last_ws_message) < args.ws_min_period:
+                return
+            
             payload = {
                 "type": "round",
                 "data": data
