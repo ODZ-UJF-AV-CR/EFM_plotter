@@ -1,2 +1,5 @@
 *.csv
 *.pyc
+*.mp4
+*.hdf
+*.hdf5
