@@ -3,19 +3,19 @@ from PyQt5.QtWidgets import QApplication, QMainWindow, QVBoxLayout, QWidget
 from PyQt5.QtCore import QThread, pyqtSignal, QIODevice
 from PyQt5.QtSerialPort import QSerialPort, QSerialPortInfo
 import pyqtgraph as pg
-import time 
-import sys
+import time
 import argparse
-from PyQt5.QtWidgets import QApplication
 import asyncio
 import websockets
 import signal
 import json
+import numpy as np
+
 
 class SerialReaderThread(QThread):
     data_received = pyqtSignal(list)
 
-    def __init__(self, port_name, baudrate=9600, log_file=None, log_prefix = "EFM"):
+    def __init__(self, port_name, baudrate=9600, log_file=None, log_prefix="EFM"):
         super().__init__()
         self.port = QSerialPort()
         self.port.setPortName(port_name)
@@ -24,7 +24,7 @@ class SerialReaderThread(QThread):
         print("Serial read buffer size:", self.port.readBufferSize())
         self.log_file = log_file
         if not self.log_file:
-            self.log_file = log_prefix+"log_"+time.strftime("%Y%m%d_%H%M%S", time.gmtime()) + "_UTC.csv"
+            self.log_file = log_prefix + "log_" + time.strftime("%Y%m%d_%H%M%S", time.gmtime()) + "_UTC.csv"
         self.log_file_handle = open(self.log_file, 'a')
         if not self.port.open(QIODevice.ReadOnly):
             print(f"Failed to open port {port_name}")
@@ -33,13 +33,10 @@ class SerialReaderThread(QThread):
         while self.port.canReadLine():
             data = self.port.readLine().data().decode().strip()
             try:
-                #print("Read data", data)
-                #self.data_received.emit([-int(x)+(65536/2) for x in data.split(',')])
                 self.data_received.emit([int(x) for x in data.split(',')])
                 self.log_data(data)
             except ValueError as e:
                 print(e)
-
 
     def log_data(self, value):
         timestamp = time.time()
@@ -72,10 +69,9 @@ class WebsocketThread(QThread):
         try:
             async for message in websocket:
                 print(f"Received: {message}")
-                #self.message_received.emit(f"Received: {message}")
         finally:
             self.clients.remove(websocket)
-    
+
     def handle_broadcast_message(self, message):
         asyncio.run_coroutine_threadsafe(self.send_message_to_all(message), self.loop)
 
@@ -99,6 +95,7 @@ class WebsocketThread(QThread):
 
 class MainWindow(QMainWindow):
     serial_thread = None
+
     def __init__(self, srt):
         super().__init__()
 
@@ -113,27 +110,48 @@ class MainWindow(QMainWindow):
         self.plot_widget = pg.PlotWidget()
         self.layout.addWidget(self.plot_widget)
 
-
-        #self.plot_widget.setYRange(-(65536/2), (65536/2))
         self.plot_widget.setYRange(-10, 65546)
         self.plot_widget.setXRange(0, 105)
         self.plot_widget.showGrid(x=True, y=True)
-        
-        self.plot_data = []
-        self.plot = self.plot_widget.plot(self.plot_data, pen=pg.mkPen(width=5))
 
-        #self.serial_thread = SerialReaderThread(port)
+        self.raw_plots = []
+        self.avg_plot = self.plot_widget.plot([], pen=pg.mkPen(color=(0, 255, 255), width=4))
+
+        self.history = []
+        self.max_history = 30
+
         self.serial_thread = srt
         self.serial_thread.data_received.connect(self.add_data)
-        #self.serial_thread.start()
 
     def add_data(self, value):
-        self.plot.setData(value)
+        data_array = np.array(value)
+        self.history.append(data_array)
+        if len(self.history) > self.max_history:
+            self.history.pop(0)
+
+        # Vykreslíme jednotlivý průběh méně výrazně
+        plot = self.plot_widget.plot(data_array, pen=pg.mkPen(color=(255, 255, 255, 75), width=1))
+        self.raw_plots.append(plot)
+        if len(self.raw_plots) > self.max_history:
+            old_plot = self.raw_plots.pop(0)
+            self.plot_widget.removeItem(old_plot)
+
+        # Odstraníme starý avg_plot (pokud existuje)
+        if hasattr(self, 'avg_plot'):
+            self.plot_widget.removeItem(self.avg_plot)
+
+        # Přepočítáme a vykreslíme klouzavý průměr s ohledem na různou délku
+        if len(self.history) >= 2:
+            min_len = min(len(h) for h in self.history)
+            trimmed_data = np.array([h[:min_len] for h in self.history])
+            avg_data = np.mean(trimmed_data, axis=0)
+            # Přidáme klouzavý průměr znovu, aby byl navrchu
+            self.avg_plot = self.plot_widget.plot(avg_data, pen=pg.mkPen(color=(0, 255, 255), width=4))
 
     def closeEvent(self, event):
         self.serial_thread.stop()
-        self.plot_thread.stop()
         event.accept()
+
 
 def main():
     parser = argparse.ArgumentParser()
@@ -145,7 +163,7 @@ def main():
     parser.add_argument("--websocket", action="store_true", help="Enable websocket mode")
     parser.add_argument("--ws_port", default=1234, help="Websocket port ")
     parser.add_argument("--ws_min_period", default=0.25, type=float, help="Minimum period between websocket messages in seconds")
-    
+
     args = parser.parse_args()
 
     app = QApplication(sys.argv)
@@ -161,10 +179,10 @@ def main():
         ws.message_received.connect(print)
 
         def process_data(data):
-            # Nechci posilat WS zpravy prilis casto
+            nonlocal last_ws_message
             if (time.time() - last_ws_message) < args.ws_min_period:
                 return
-            
+            last_ws_message = time.time()
             payload = {
                 "type": "round",
                 "data": data
@@ -174,11 +192,9 @@ def main():
         serial_thread.data_received.connect(process_data)
 
     if args.gui:
-        window = MainWindow(srt = serial_thread)
+        window = MainWindow(srt=serial_thread)
         window.show()
-            
 
-    # Aby to slo ukoncit pomoci Ctrl+C
     def signal_handler(signal, frame):
         sys.exit(0)
 
@@ -188,3 +204,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
