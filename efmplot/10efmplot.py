@@ -128,25 +128,55 @@ class MainWindow(QMainWindow):
         self.history.append(data_array)
         if len(self.history) > self.max_history:
             self.history.pop(0)
-
-        # Vykreslíme jednotlivý průběh méně výrazně
-        plot = self.plot_widget.plot(data_array, pen=pg.mkPen(color=(255, 255, 255, 75), width=1))
-        self.raw_plots.append(plot)
-        if len(self.raw_plots) > self.max_history:
-            old_plot = self.raw_plots.pop(0)
-            self.plot_widget.removeItem(old_plot)
-
-        # Odstraníme starý avg_plot (pokud existuje)
-        if hasattr(self, 'avg_plot'):
+    
+        for plot in self.raw_plots:
+            self.plot_widget.removeItem(plot)
+        self.raw_plots = []
+    
+        for h in self.history[:-1]:
+            plot = self.plot_widget.plot(h, pen=pg.mkPen(color=(180, 180, 180, 60), width=1))
+            self.raw_plots.append(plot)
+    
+        if self.last_curve:
+            self.plot_widget.removeItem(self.last_curve)
+        self.last_curve = self.plot_widget.plot(self.history[-1], pen=pg.mkPen(color=(255, 215, 0), width=3))
+    
+        if self.avg_plot:
             self.plot_widget.removeItem(self.avg_plot)
-
-        # Přepočítáme a vykreslíme klouzavý průměr s ohledem na různou délku
+        avg_data = None
         if len(self.history) >= 2:
             min_len = min(len(h) for h in self.history)
             trimmed_data = np.array([h[:min_len] for h in self.history])
             avg_data = np.mean(trimmed_data, axis=0)
-            # Přidáme klouzavý průměr znovu, aby byl navrchu
             self.avg_plot = self.plot_widget.plot(avg_data, pen=pg.mkPen(color=(0, 255, 255), width=4))
+        else:
+            self.avg_plot = None
+    
+        # Textové hodnoty do grafu
+        if self.text_item:
+            self.plot_widget.removeItem(self.text_item)
+    
+        txt = ""
+        if len(self.history) > 0:
+            # Nově: počítat rozdíl mezi 30. a 12. hodnotou (index 29 a 11)
+            last_delta = None
+            avg_delta = None
+    
+            last_data = self.history[-1]
+            if len(last_data) >= 30:
+                last_delta = last_data[29] - last_data[11]
+            if avg_data is not None and len(avg_data) >= 30:
+                avg_delta = avg_data[29] - avg_data[11]
+    
+            txt = ""
+            if last_delta is not None:
+                txt += f"Last Δ: {last_delta:.2f}   "
+            if avg_delta is not None:
+                txt += f"Avg Δ: {avg_delta:.2f}"
+    
+            self.text_item = pg.TextItem(txt, color='w', anchor=(0,0))
+            self.plot_widget.addItem(self.text_item)
+            self.text_item.setPos(2, 65546 - 1000)
 
     def closeEvent(self, event):
         self.serial_thread.stop()
