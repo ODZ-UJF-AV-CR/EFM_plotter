@@ -1,0 +1,11 @@
+[Unit]
+Description=Timer for EFM daily plot generation
+
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=10min
+AccuracySec=1s
+Persistent=true
+
+[Install]
+WantedBy=timers.target

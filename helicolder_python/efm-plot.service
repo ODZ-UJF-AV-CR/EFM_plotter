@@ -1,0 +1,10 @@
+[Unit]
+Description=EFM daily plot generation
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 /home/mill/repos/EFM_plotter/helicolder_python/plot.py --input /storage/EFM/waveform/ --output /storage/EFM/dayview/ --observatory "Musala BEO" --station THUNDERMILL01 --format png --theme dark
+RuntimeMaxSec=300
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
