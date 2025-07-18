@@ -16,6 +16,7 @@ def parse_arguments():
     parser.add_argument('--format', type=str, choices=['png', 'svg'], default='png', help='Output format (png or svg, default: png)')
     parser.add_argument('--theme', type=str, choices=['light', 'dark'], default='light', help='Plot theme (light or dark, default: light)')
     parser.add_argument('--calibration', type=float, default=1/1.4244*1000, help='Calibration coefficient for ADU to kV/m conversion (default: 701.98)')
+    parser.add_argument('--scale', type=float, default=4.0, help='Amplitude scaling factor for visualization (default: 4.0)')
     parser.add_argument('--verbose', '-v', action='store_true', help='Enable verbose output')
     
     return parser.parse_args()
@@ -38,6 +39,7 @@ def main():
     output_format = args.format
     theme = args.theme
     calibration_coefficient = args.calibration
+    amplitude_scale = args.scale
     
     if verbose:
         print("=== EFI Helicorder Plot Generator ===")
@@ -45,6 +47,7 @@ def main():
         print(f"Using output format: {output_format}")
         print(f"Using theme: {theme}")
         print(f"Using calibration coefficient: {calibration_coefficient}")
+        print(f"Using amplitude scaling factor: {amplitude_scale}x")
     
     # Set station prefix from arguments
     station_prefix = args.station
@@ -192,7 +195,7 @@ def main():
         text_color = 'white'
         line_color1 = '#00B7EB'  # Cyan for even hours
         line_color2 = '#00FF7F'  # Spring green for odd hours
-        grid_color = '#404040'
+        grid_color = '#808080'   # Brighter gray for better visibility
         figure_facecolor = '#1E1E1E'
         timestamp_color = '#808080'  # Gray
     else:
@@ -216,20 +219,24 @@ def main():
     
     if verbose:
         print("Setting up plot layout and axes...")
+        print(f"Using amplitude scaling factor: {amplitude_scale}x")
     
     # Hodiny opačně: 0h nahoře, 23h dole
     for i, row in enumerate(efi_matrix):
         base_y = (len(hours) - 1 - i) * amp_offset
         if not np.isnan(row).all():
             color = line_color1 if i % 2 == 0 else line_color2
-            ax.plot(np.linspace(0, 60, maxlen), row + base_y, color=color, linewidth=0.7)
+            # Scale the data by the amplitude_scale factor
+            scaled_data = row * amplitude_scale + base_y
+            ax.plot(np.linspace(0, 60, maxlen), scaled_data, color=color, linewidth=0.7)
             if verbose:
                 print(f"Plotting hour {hours[i]} data ({len(row[~np.isnan(row)])} valid points)")
         else:
             if verbose:
                 print(f"No data to plot for hour {hours[i]}")
                 
-        ax.plot([0, 60], [base_y, base_y], color=grid_color, linewidth=0.2, linestyle="dashed")
+        # Improved grid lines - thicker for better visibility in dark theme
+        ax.plot([0, 60], [base_y, base_y], color=grid_color, linewidth=0.4, linestyle="dashed")
     
     # Set text colors
     ax.tick_params(colors=text_color)
@@ -252,13 +259,17 @@ def main():
     
     # Svislá škála vpravo using the calibration coefficient
     ADU_per_kVm = calibration_coefficient
-    scalebar_len = 10 * ADU_per_kVm
+    scalebar_len = 10 * ADU_per_kVm * amplitude_scale  # Apply same scaling as the data
     scalex = 62
     scaley = -bottom_margin + amp_offset * 1
     ax.plot([scalex, scalex], [scaley, scaley + scalebar_len], color=text_color, linewidth=2, zorder=5)
-    ax.text(scalex + 1, scaley + scalebar_len, "+", color=text_color, va="center", ha="left", fontsize=15, fontweight="bold")
-    ax.text(scalex + 1, scaley, "-", color=text_color, va="center", ha="left", fontsize=15, fontweight="bold")
-    ax.text(scalex + 1, scaley + scalebar_len / 2, "10 kV/m", color=text_color, va="center", ha="left", fontsize=12, rotation=90)
+    
+    # Improved text positioning to prevent overlap
+    text_margin = 2000  # Margin for + and - signs
+    ax.text(scalex + 0.5, scaley + scalebar_len + text_margin, "+", color=text_color, va="center", ha="left", fontsize=15, fontweight="bold")
+    ax.text(scalex + 0.5, scaley - text_margin, "-", color=text_color, va="center", ha="left", fontsize=15, fontweight="bold")
+    # Position the kV/m text closer to the scale bar
+    ax.text(scalex + 1.5, scaley + scalebar_len / 2, "10 kV/m", color=text_color, va="center", ha="left", fontsize=12, rotation=90)
     
     plt.tight_layout()
     
@@ -271,7 +282,22 @@ def main():
     plt.savefig(output_file, dpi=120, facecolor=figure_facecolor, bbox_inches='tight')
     plt.close()
     print(f"Saved daily EFI helicorder: {output_file}")
-    
+
+
+    # Symlink na latest.png
+    latest_link = os.path.join(processing_dir, f"{station_prefix}_latest.png")
+    try:
+        # Pokud symlink už existuje, smaž ho
+        if os.path.islink(latest_link) or os.path.exists(latest_link):
+            os.remove(latest_link)
+        rel_path = os.path.relpath(output_file, start=processing_dir)
+        os.symlink(rel_path, latest_link)
+        if verbose:
+            print(f"Created symlink: {latest_link} → {rel_path}")
+    except Exception as e:
+        print(f"Failed to create symlink: {e}")
+
+
     if verbose:
         print("=== Processing complete ===")
 
